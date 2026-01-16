@@ -1,0 +1,240 @@
+/* базовые стили */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: #f0f0f0;
+}
+
+/* шапка */
+.header {
+    background: #2c3e50;
+    color: white;
+    padding: 15px 20px;
+}
+
+.header h1 {
+    font-size: 20px;
+    margin-bottom: 5px;
+}
+
+.header p {
+    font-size: 14px;
+    opacity: 0.9;
+}
+
+/* основной контейнер */
+.container {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* фильтр */
+.filter-group {
+    padding: 15px 20px;
+    background: white;
+    border-bottom: 1px solid #ddd;
+}
+
+#admarea-select {
+    width: 300px;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+/* основной контент карта и сайдбар */
+.main-content {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+/* контейнер карты */
+.map-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+}
+
+#map {
+    width: 100%;
+    height: 100%;
+}
+
+/* об апи */
+.api-info {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    background: rgba(255, 255, 255, 0.95);
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #666;
+    border: 1px solid #eaeaea;
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    max-width: 250px;
+}
+
+.api-info span {
+    line-height: 1.3;
+}
+
+.api-info a {
+    color: #3498db;
+    text-decoration: none;
+}
+
+.api-info a:hover {
+    text-decoration: underline;
+}
+
+/* боковая панель */
+.sidebar {
+    width: 320px;
+    background: white;
+    border-left: 1px solid #ddd;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-header {
+    padding: 20px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #eaeaea;
+}
+
+.sidebar-header h2 {
+    font-size: 18px;
+    color: #2c3e50;
+    margin-bottom: 5px;
+}
+
+.sidebar-header p {
+    font-size: 13px;
+    color: #666;
+}
+
+/* о доме */
+#house-info {
+    padding: 20px;
+    flex: 1;
+    overflow-y: auto;
+}
+
+.placeholder {
+    color: #999;
+    font-style: italic;
+    text-align: center;
+    padding: 40px 20px;
+    font-size: 14px;
+}
+
+.house-details {
+    background: #f8f9fa;
+    border-radius: 6px;
+    padding: 20px;
+    border: 1px solid #eaeaea;
+}
+
+.house-address {
+    font-size: 18px;
+    color: #2c3e50;
+    margin-bottom: 15px;
+    font-weight: bold;
+    line-height: 1.4;
+}
+
+.house-company {
+    background: white;
+    padding: 15px;
+    border-radius: 4px;
+    border-left: 4px solid #3498db;
+}
+
+.company-name {
+    font-size: 16px;
+    color: #2c3e50;
+    margin-bottom: 5px;
+}
+
+.company-label {
+    font-size: 12px;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* статус */
+.status-bar {
+    padding: 12px 20px;
+    background: #f8f9fa;
+    border-top: 1px solid #eaeaea;
+    font-size: 13px;
+    color: #666;
+}
+
+.status-loading {
+    color: #3498db;
+}
+
+.status-error {
+    color: #e74c3c;
+}
+
+.status-success {
+    color: #27ae60;
+}
+
+/* шарики яндекса */
+.ymaps-balloon {
+    font-family: Arial, sans-serif !important;
+}
+
+.balloon-content {
+    padding: 10px;
+    max-width: 250px;
+}
+
+.balloon-address {
+    font-weight: bold;
+    margin-bottom: 8px;
+    color: #2c3e50;
+}
+
+.balloon-company {
+    color: #666;
+    font-size: 14px;
+    margin-bottom: 10px;
+}
+
+.balloon-button {
+    background: #3498db;
+    color: white;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    width: 100%;
+    text-align: center;
+}
+
+.balloon-button:hover {
+    background: #2980b9;
+}
