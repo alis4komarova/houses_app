@@ -84,6 +84,9 @@ if ($action === 'get-houses') {
 } elseif ($action === 'get-violations') {
     $inn = $_GET['inn'] ?? '';
     echo getViolationsByINN($inn);
+} elseif ($action === 'get-uk-rating-2024') {
+    $inn = $_GET['inn'] ?? '';
+    echo getRating2024($inn);
 } else {
     echo json_encode(['error' => 'Неизвестное действие']);
 }
@@ -560,5 +563,103 @@ function loadViolationsFromAPI() {
     }
     
     return $violations;
+}
+// для получения рейтинга ук 2024 года
+function getRating2024($inn = '') {
+    $cacheFile = CACHE_DIR . 'rating_2024.cache';
+    
+    // данные рейтинга
+    if (!file_exists($cacheFile) || (time() - filemtime($cacheFile) > CACHE_TIME)) {
+        $ratingData = loadRating2024FromAPI();
+        file_put_contents($cacheFile, json_encode($ratingData, JSON_UNESCAPED_UNICODE));
+    } else {
+        $ratingData = json_decode(file_get_contents($cacheFile), true);
+    }
+    
+    // ИНН пустой не участвовали
+    if (empty($inn)) {
+        return json_encode([
+            'inn' => $inn,
+            'place' => null,
+            'total' => count($ratingData)
+        ], JSON_UNESCAPED_UNICODE);
+    }
+    
+    // компания по ИНН
+    $companyRating = null;
+    $place = null;
+    $total = count($ratingData);
+    
+    foreach ($ratingData as $index => $company) {
+        if (!empty($company['INN']) && $company['INN'] == $inn) {
+            $companyRating = $company;
+            $place = $index + 1; // место в рейтинге с 1
+            break;
+        }
+    }
+    
+    if ($companyRating) {
+        return json_encode([
+            'inn' => $inn,
+            'place' => $place,
+            'total' => $total
+        ], JSON_UNESCAPED_UNICODE);
+    } else {
+        return json_encode([
+            'inn' => $inn,
+            'place' => null,
+            'total' => $total
+        ], JSON_UNESCAPED_UNICODE);
+    }
+}
+
+// загрузка данных рейтинга с апи
+function loadRating2024FromAPI() {
+    $ratingData = [];
+    $skip = 0;
+    $hasMore = true;
+    
+    while ($hasMore) {
+        $url = sprintf(
+            'https://apidata.mos.ru/v1/datasets/%d/rows?api_key=%s&$top=%d&$skip=%d',
+            64078,
+            API_KEY,
+            BATCH_SIZE,
+            $skip
+        );
+        
+        $response = @file_get_contents($url);
+        if ($response === false) {
+            error_log("Ошибка загрузки рейтинга УК за 2024, skip: $skip");
+            break;
+        }
+        
+        $data = json_decode($response, true);
+        if (empty($data)) {
+            $hasMore = false;
+            break;
+        }
+        
+        foreach ($data as $item) {
+            $company = $item['Cells'] ?? [];
+            if (empty($company['INN'])) continue;
+            
+            $ratingData[] = [
+                'INN' => $company['INN'] ?? '',
+                'FinalRating' => $company['FinalRating'] ?? 0
+            ];
+        }
+        
+        $skip += BATCH_SIZE;
+        if (count($data) < BATCH_SIZE) $hasMore = false;
+        
+        usleep(100000); // 100ms задержка
+    }
+    
+    // чем меньше число, тем выше место
+    usort($ratingData, function($a, $b) {
+        return ($a['FinalRating'] ?? 999999) <=> ($b['FinalRating'] ?? 999999);
+    });
+    return $ratingData;
 }
 ?>

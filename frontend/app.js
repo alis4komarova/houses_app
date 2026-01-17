@@ -161,7 +161,7 @@ function updateStatus(message, type = '') {
 }
 // для показа деталей дома
 async function showHouseDetails(address, admArea = '', district = '', companyName = '', inn = '') {
-    updateStatus('Загрузка информации о лицензии и нарушениях...', 'loading');
+    updateStatus('Загрузка информации о доме...', 'loading');
     
     try {
         const requests = [
@@ -169,11 +169,13 @@ async function showHouseDetails(address, admArea = '', district = '', companyNam
         ];
         if (inn) {
             requests.push(fetch(`/backend/api.php?action=get-violations&inn=${encodeURIComponent(inn)}`));
+            requests.push(fetch(`/backend/api.php?action=get-uk-rating-2024&inn=${encodeURIComponent(inn)}`));
         } else {
+            requests.push(Promise.resolve(null));
             requests.push(Promise.resolve(null));
         }
         
-        const [licenseResponse, violationsResponse] = await Promise.all(requests);
+        const [licenseResponse, violationsResponse, ratingResponse] = await Promise.all(requests);
         
         if (!licenseResponse.ok) {
             throw new Error(`HTTP error! status: ${licenseResponse.status}`);
@@ -181,8 +183,12 @@ async function showHouseDetails(address, admArea = '', district = '', companyNam
         
         const licenseInfo = await licenseResponse.json();
         let violationsInfo = null;
+        let ratingInfo = null;
         if (violationsResponse && violationsResponse !== null) {
             violationsInfo = await violationsResponse.json();
+        }
+        if (ratingResponse && ratingResponse !== null) {
+            ratingInfo = await ratingResponse.json();
         }
         
         // для лицензии
@@ -207,6 +213,18 @@ async function showHouseDetails(address, admArea = '', district = '', companyNam
             violationsText = '<div class="violations-status violations-unknown">ИНН не указан</div>';
         } else {
             violationsText = '<div class="violations-status violations-unknown">Данных о нарушениях нет</div>';
+        }
+        
+        // рейтинг УК 2024
+        let ratingText = '';
+        if (ratingInfo && ratingInfo.place !== undefined && ratingInfo.place !== null) {
+            ratingText = `<div class="rating-status">${ratingInfo.place} место</div>`;
+        } else if (ratingInfo && ratingInfo.place === null && inn) {
+            ratingText = '<div class="rating-status rating-not-found">В рейтинге не участвует</div>';
+        } else if (!inn) {
+            ratingText = '<div class="rating-status rating-unknown">ИНН не указан</div>';
+        } else {
+            ratingText = '<div class="rating-status rating-unknown">Данных о рейтинге нет</div>';
         }
 
         const houseInfoHTML = `
@@ -235,6 +253,10 @@ async function showHouseDetails(address, admArea = '', district = '', companyNam
                 <div class="info-row">
                     <span class="info-label">Нарушения УК за 2025 год:</span>
                     <div class="info-value">${violationsText}</div>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Место в рейтинге УК 2024 из ${ratingInfo.total} УК:</span>
+                    <div class="info-value">${ratingText}</div>
                 </div>
             </div>
         `;
@@ -273,6 +295,12 @@ async function showHouseDetails(address, admArea = '', district = '', companyNam
                     <span class="info-label">Нарушения УК за 2025 год:</span>
                     <div class="info-value">
                         <span class="violations-status violations-error">Ошибка загрузки</span>
+                    </div>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Место в рейтинге УК 2024 из ${ratingInfo.total} УК:</span>
+                    <div class="info-value">
+                        <span class="rating-status rating-error">Ошибка загрузки</span>
                     </div>
                 </div>
             </div>

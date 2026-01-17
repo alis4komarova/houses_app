@@ -330,3 +330,34 @@ body {
     color: #721c24;
     border: 1px solid #f5c6cb;
 }
+/* стили для отображения рейтинга УК 2024 */
+.rating-status {
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: bold;
+    display: inline-block;
+}
+
+.rating-not-found {
+    background: #e2e3e5;
+    color: #383d41;
+    border: 1px solid #d6d8db;
+}
+
+.rating-unknown {
+    background: #f8f9fa;
+    color: #6c757d;
+    border: 1px solid #dee2e6;
+}
+
+.rating-error {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+.rating-status:not(.rating-not-found):not(.rating-unknown):not(.rating-error) {
+    background: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
