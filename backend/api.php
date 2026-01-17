@@ -70,12 +70,16 @@ if (!is_dir(CACHE_DIR)) {
 
 $action = $_GET['action'] ?? '';
 $area = $_GET['area'] ?? '';
+$houseAddress = $_GET['address'] ?? '';
+$companyName = $_GET['company'] ?? '';
 
 // обработка запросов
 if ($action === 'get-houses') {
     echo getHouses($area);
 } elseif ($action === 'get-areas') {
     echo getAreas();
+} elseif ($action === 'get-license-info') {
+    echo getLicenseInfo($houseAddress, $companyName);
 } else {
     echo json_encode(['error' => 'Неизвестное действие']);
 }
@@ -133,6 +137,8 @@ function getHouses($area = '') {
                         'lat' => $houseCoord[0],
                         'lon' => $houseCoord[1],
                         'companyName' => $company['ShortName'] ?? $company['FullName'] ?? 'Не указано',
+                        'companyFullName' => $company['FullName'] ?? '',
+                        'companyShortName' => $company['ShortName'] ?? '',
                         'district' => $house['District'] ?? '',
                         'admArea' => $house['AdmArea']
                     ];
@@ -225,11 +231,64 @@ function getAreas() {
 
 function isTCH($company) {
     $orgForm = strtolower($company['OrganizationalForm'] ?? '');
-    return strpos($orgForm, 'тсж') !== false || 
-           strpos($orgForm, 'товарищество') !== false ||
-           strpos($orgForm, 'кооператив') !== false;
+    $shortName = strtolower($company['ShortName'] ?? '');
+    $fullName = strtolower($company['FullName'] ?? '');
+    
+    // не ук
+    $tchKeywords = [
+        'тсж', 'товарищество собственников жилья',
+        'жилищный кооператив', 'потребительский кооператив',
+        'жилищно-строительный кооператив', 'тсн',
+        'товарищество собственников недвижимости',
+        'жск', 'жилищно-строительный кооператив',
+        'кп', 'кооператив собственников',   
+        'пк', 'потребительский кооператив' 
+    ];
+    
+    $isTCH = false;
+    
+    // организац форма
+    foreach ($tchKeywords as $keyword) {
+        if (strpos($orgForm, $keyword) !== false) {
+            $isTCH = true;
+            break;
+        }
+    }
+    
+    // в названиях
+    foreach ($tchKeywords as $keyword) {
+        if (strpos($shortName, $keyword) !== false || 
+            strpos($fullName, $keyword) !== false) {
+            $isTCH = true;
+            break;
+        }
+    }
+    
+    // по аббревиатурам
+    if (preg_match('/тсж\s*["\']?/ui', $shortName) || 
+        preg_match('/тсж\s*["\']?/ui', $fullName) ||
+        preg_match('/тсн\s*["\']?/ui', $shortName) ||
+        preg_match('/тсн\s*["\']?/ui', $fullName) ||   
+        preg_match('/жск\s*["\']?/ui', $shortName) || 
+        preg_match('/жск\s*["\']?/ui', $fullName))
+    {
+        $isTCH = true;
+    }
+    
+    // только ук
+    $isUK = strpos($orgForm, 'управляющая компания') !== false ||
+            strpos($shortName, 'управляющая компания') !== false ||
+            strpos($fullName, 'управляющая компания') !== false ||
+            stripos($shortName, 'ук ') === 0 ||
+            stripos($shortName, 'управляющая компания ') === 0 ||
+            preg_match('/^ук\s+["\']/ui', $shortName) ||
+            preg_match('/^управляющая компания\s+["\']/ui', $shortName);
+    if ($isUK) {
+        return false;
+    }
+    
+    return $isTCH;
 }
-
 function getCoordinates($company) {
     $coords = [];
     
@@ -273,5 +332,220 @@ function isInBounds($lat, $lon, $bounds) {
            $lat <= $bounds['latMax'] && 
            $lon >= $bounds['lonMin'] && 
            $lon <= $bounds['lonMax'];
+}
+// инфа о лицензиях
+function getLicenseInfo($address, $companyName = '') {
+    
+    $cacheFile = CACHE_DIR . 'licenses.cache';
+    
+    // если нет в кэше
+    if (!file_exists($cacheFile) || (time() - filemtime($cacheFile) > CACHE_TIME)) {
+        $licenses = loadLicensesFromAPI();
+        file_put_contents($cacheFile, json_encode($licenses, JSON_UNESCAPED_UNICODE));
+    } else {
+        $licenses = json_decode(file_get_contents($cacheFile), true);
+    }
+    
+    $companyNameToCheck = !empty($companyName) ? $companyName : extractCompanyNameFromAddress($address);
+    
+    if (!$companyNameToCheck) {
+        return json_encode([
+            'hasLicense' => false,
+            'licenseDate' => null,
+            'companyName' => null,
+            'message' => 'Название компании не найдено'
+        ], JSON_UNESCAPED_UNICODE);
+    }
+    
+    // ищем лицензию
+    $licenseFound = findLicenseForCompany($companyNameToCheck, $licenses);
+    
+    $hasLicense = !empty($licenseFound);
+    $licenseDate = $hasLicense ? formatLicenseDate($licenseFound['licenseDate']) : null;
+    
+    
+    return json_encode([
+        'hasLicense' => $hasLicense,
+        'licenseDate' => $licenseDate,
+        'companyName' => $companyNameToCheck,
+        'licenseInfo' => $licenseFound,
+    ], JSON_UNESCAPED_UNICODE);
+}
+
+// найти лицензию для компании
+function findLicenseForCompany($companyName, $licenses) {
+    if (empty($companyName) || empty($licenses)) {
+        return null;
+    }
+    
+    $normalizedSearch = normalizeCompanyName($companyName);
+    $searchVariants = [$normalizedSearch];
+    
+    // без кавычек
+    $searchVariants[] = str_replace(['"', "'", '«', '»'], '', $normalizedSearch);
+    
+    // без приставок в скобках
+    $searchVariants[] = preg_replace('/\s*\([^)]*\)/', '', $normalizedSearch);
+    
+    // первые слова
+    $words = explode(' ', $normalizedSearch);
+    if (count($words) > 1) {
+        $searchVariants[] = $words[0]; // первое слово
+        $searchVariants[] = implode(' ', array_slice($words, 0, 2)); // первые 2 слова
+        if (count($words) > 2) {
+            $searchVariants[] = implode(' ', array_slice($words, 0, 3)); // первые 3 слова
+        }
+    }
+    
+    // убираем дубликаты и пустые значения
+    $searchVariants = array_filter(array_unique($searchVariants));
+    
+    foreach ($licenses as $index => $license) {
+        $licenseName = $license['companyName'] ?? '';
+        
+        foreach ($searchVariants as $variant) {
+            if (empty($variant) || empty($licenseName)) continue;
+            
+            // совпадение
+            if ($licenseName === $variant) {
+                return $license;
+            }
+            
+            // строка содержит другую
+            if (strpos($licenseName, $variant) !== false || 
+                strpos($variant, $licenseName) !== false) {
+                return $license;
+            }
+            
+            // первые слова
+            $licenseFirstWord = explode(' ', $licenseName)[0] ?? '';
+            $searchFirstWord = explode(' ', $variant)[0] ?? '';
+            
+            if (!empty($licenseFirstWord) && !empty($searchFirstWord) && 
+                $licenseFirstWord === $searchFirstWord) {
+                return $license;
+            }
+        }
+    }
+    return null;
+}
+
+// нормализация названия компании
+function normalizeCompanyName($name) {
+    // к верхнему регистру
+    $name = mb_strtoupper(trim($name), 'UTF-8');
+    
+    // убираем ООО
+    $name = preg_replace('/^(ООО|АО|ЗАО|ПАО|ГБУ|ГУП|МКУ|УК|УПРАВЛЯЮЩАЯ КОМПАНИЯ)\s+/u', '', $name);
+    
+    // убираем кавычки и лишние пробелы
+    $name = str_replace(['"', "'", '«', '»', '  '], ['', '', '', '', ' '], $name);
+    $name = trim($name);
+    
+    return $name;
+}
+
+// извлечение названия компании из адреса
+function extractCompanyNameFromAddress($address) {
+    
+    //"УК 'НАЗВАНИЕ', адрес: ..."
+    if (preg_match('/УК\s+["\']([^"\']+)["\']/', $address, $matches)) {
+        return $matches[1];
+    }
+    
+    // "Управляющая компания 'НАЗВАНИЕ'"
+    if (preg_match('/Управляющая компания\s+["\']([^"\']+)["\']/', $address, $matches)) {
+        return $matches[1];
+    }
+    
+    // "ООО 'НАЗВАНИЕ'"
+    if (preg_match('/(?:ООО|АО|ЗАО|ПАО)\s+["\']([^"\']+)["\']/', $address, $matches)) {
+        return $matches[1];
+    }
+    
+    // просто текст в кавычках
+    if (preg_match('/["\']([А-ЯЁ0-9\s\-]+)["\']/u', $address, $matches)) {
+        $possibleName = $matches[1];
+        // Проверяем, что это не адрес (не содержит "ул.", "д.", "к." и т.д.)
+        if (!preg_match('/(ул\.|д\.|к\.|корп\.|стр\.|лит\.)/ui', $possibleName)) {
+            return $possibleName;
+        }
+    }
+    
+    return null;
+}
+
+// форматирование даты лицензии
+function formatLicenseDate($dateString) {
+    if (empty($dateString)) {
+        return 'дата неизвестна';
+    }
+    
+    try {
+        $date = DateTime::createFromFormat('Y-m-d\TH:i:s', $dateString);
+        if ($date) {
+            return $date->format('d.m.Y');
+        }
+        
+        // другой возможный формат
+        $date = DateTime::createFromFormat('Y-m-d', $dateString);
+        if ($date) {
+            return $date->format('d.m.Y');
+        }
+        
+        return $dateString;
+    } catch (Exception $e) {
+        return $dateString;
+    }
+}
+//загрузка лицензий по апи
+function loadLicensesFromAPI() {
+    $licenses = [];
+    $skip = 0;
+    $hasMore = true;
+    
+    while ($hasMore) {
+        $url = sprintf(
+            'https://apidata.mos.ru/v1/datasets/%d/rows?api_key=%s&$top=%d&$skip=%d',
+            3102, // ID датасета лицензий
+            API_KEY,
+            BATCH_SIZE,
+            $skip
+        );
+        
+        $response = @file_get_contents($url);
+        if ($response === false) {
+            error_log("Ошибка загрузки лицензий, skip: $skip");
+            break;
+        }
+        
+        $data = json_decode($response, true);
+        if (empty($data)) {
+            $hasMore = false;
+            break;
+        }
+        
+        foreach ($data as $item) {
+            $license = $item['Cells'] ?? [];
+            if (empty($license['LicenseeFullName'])) continue;
+            
+            // нормализуем название компании
+            $companyName = normalizeCompanyName($license['LicenseeFullName']);
+            
+            $licenses[] = [
+                'companyName' => $companyName,
+                'originalName' => $license['LicenseeFullName'],
+                'licenseNumber' => $license['LicenseRegNumber'] ?? '',
+                'licenseDate' => $license['LicenseIssueDate'] ?? '',
+                'inn' => $license['INN'] ?? ''
+            ];
+        }
+        
+        $skip += BATCH_SIZE;
+        if (count($data) < BATCH_SIZE) $hasMore = false;
+        
+        usleep(100000); // 100ms пауза
+    }
+    return $licenses;
 }
 ?>

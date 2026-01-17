@@ -14,10 +14,29 @@ function init() {
     map = new ymaps.Map('map', {
         center: CONFIG.MAP_CENTER,
         zoom: CONFIG.MAP_ZOOM,
-        controls: ['zoomControl']
+        controls: ['zoomControl'],
+        maxZoom: 18, // <-- ДОБАВЛЯЕМ максимальный зум
+        minZoom: 9    // <-- ДОБАВЛЯЕМ минимальный зум
+    });
+    
+    // Добавляем обработчик изменения зума
+    map.events.add('boundschange', function(event) {
+        // Проверяем, не слишком ли сильно приблизились
+        const currentZoom = map.getZoom();
+        if (currentZoom > 18) {
+            map.setZoom(18);
+        }
     });
     
     updateStatus('Карта готова', 'success');
+    document.getElementById('house-info').innerHTML = `
+        <div class="placeholder">
+            Выберите дом на карте для просмотра информации
+            <div style="margin-top: 10px; font-size: 12px; color: #777;">
+                Будут показаны: адрес, округ, район, статус лицензии
+            </div>
+        </div>
+    `;
     
     
     loadAndShowFilters();
@@ -110,6 +129,10 @@ function displayHouses(houses) {
                 iconColor: '#3498db'
             }
         );
+         // обработчик клика на маркер
+        marker.events.add('click', function() {
+            showHouseDetails(house.address, house.admArea, house.district,house.companyName);
+        });
         
         map.geoObjects.add(marker);
     });
@@ -136,4 +159,83 @@ function updateStatus(message, type = '') {
     if (type === 'loading') statusEl.classList.add('status-loading');
     else if (type === 'error') statusEl.classList.add('status-error');
     else if (type === 'success') statusEl.classList.add('status-success');
+}
+// для показа деталей дома
+// app.js - ЗАМЕНЯЕМ функцию showHouseDetails:
+async function showHouseDetails(address, admArea = '', district = '', companyName = '') {
+    updateStatus('Загрузка информации о лицензии...', 'loading');
+    
+    try {
+        const url = `/backend/api.php?action=get-license-info&address=${encodeURIComponent(address)}&company=${encodeURIComponent(companyName)}`;
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const licenseInfo = await response.json();
+        
+        // Новая логика: только проверка наличия лицензии
+        let licenseText = '';
+        if (licenseInfo.hasLicense) {
+            licenseText = `<div class="license-status license-yes">Лицензия есть ${licenseInfo.licenseDate ? 'с ' + licenseInfo.licenseDate : ''}</div>`;
+        } else {
+            licenseText = '<div class="license-status license-no">Лицензия не найдена</div>';
+        }
+        
+        const houseInfoHTML = `
+            <div class="house-details">
+                <div class="house-address">${address}</div>
+                <div class="info-row">
+                    <span class="info-label">Округ:</span>
+                    <span class="info-value">${admArea || 'Не указан'}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Район:</span>
+                    <span class="info-value">${district || 'Не указан'}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Управляющая компания:</span>
+                    <span class="info-value">${companyName || 'Не указана'}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Статус лицензии:</span>
+                    <div class="info-value">${licenseText}</div>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('house-info').innerHTML = houseInfoHTML;
+        updateStatus('Информация загружена', 'success');
+        
+    } catch (error) {
+        console.error('Ошибка загрузки лицензии:', error);
+        
+        const houseInfoHTML = `
+            <div class="house-details">
+                <div class="house-address">${address}</div>
+                <div class="info-row">
+                    <span class="info-label">Округ:</span>
+                    <span class="info-value">${admArea || 'Не указан'}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Район:</span>
+                    <span class="info-value">${district || 'Не указан'}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Управляющая компания:</span>
+                    <span class="info-value">${companyName || 'Не указана'}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Статус лицензии:</span>
+                    <div class="info-value">
+                        <span class="license-status license-error">Ошибка загрузки</span>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('house-info').innerHTML = houseInfoHTML;
+        updateStatus('Ошибка загрузки лицензии', 'error');
+    }
 }
