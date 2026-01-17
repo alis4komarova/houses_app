@@ -79,7 +79,11 @@ if ($action === 'get-houses') {
 } elseif ($action === 'get-areas') {
     echo getAreas();
 } elseif ($action === 'get-license-info') {
-    echo getLicenseInfo($houseAddress, $companyName);
+    $inn = $_GET['inn'] ?? '';
+    echo getLicenseInfo($inn);
+} elseif ($action === 'get-violations') {
+    $inn = $_GET['inn'] ?? '';
+    echo getViolationsByINN($inn);
 } else {
     echo json_encode(['error' => 'Неизвестное действие']);
 }
@@ -140,7 +144,8 @@ function getHouses($area = '') {
                         'companyFullName' => $company['FullName'] ?? '',
                         'companyShortName' => $company['ShortName'] ?? '',
                         'district' => $house['District'] ?? '',
-                        'admArea' => $house['AdmArea']
+                        'admArea' => $house['AdmArea'],
+                        'INN' => $company['INN']
                     ];
                 }
             }
@@ -334,7 +339,7 @@ function isInBounds($lat, $lon, $bounds) {
            $lon <= $bounds['lonMax'];
 }
 // инфа о лицензиях
-function getLicenseInfo($address, $companyName = '') {
+function getLicenseInfo($inn = '') {
     
     $cacheFile = CACHE_DIR . 'licenses.cache';
     
@@ -346,87 +351,33 @@ function getLicenseInfo($address, $companyName = '') {
         $licenses = json_decode(file_get_contents($cacheFile), true);
     }
     
-    $companyNameToCheck = !empty($companyName) ? $companyName : extractCompanyNameFromAddress($address);
-    
-    if (!$companyNameToCheck) {
-        return json_encode([
-            'hasLicense' => false,
-            'licenseDate' => null,
-            'companyName' => null,
-            'message' => 'Название компании не найдено'
-        ], JSON_UNESCAPED_UNICODE);
-    }
-    
-    // ищем лицензию
-    $licenseFound = findLicenseForCompany($companyNameToCheck, $licenses);
+    // лицензию по ИНН
+    $licenseFound = findLicenseByINN($inn, $licenses);
     
     $hasLicense = !empty($licenseFound);
     $licenseDate = $hasLicense ? formatLicenseDate($licenseFound['licenseDate']) : null;
     
-    
     return json_encode([
         'hasLicense' => $hasLicense,
         'licenseDate' => $licenseDate,
-        'companyName' => $companyNameToCheck,
-        'licenseInfo' => $licenseFound,
+        'inn' => $inn,
+        'licenseInfo' => $licenseFound
     ], JSON_UNESCAPED_UNICODE);
 }
 
 // найти лицензию для компании
-function findLicenseForCompany($companyName, $licenses) {
-    if (empty($companyName) || empty($licenses)) {
+function findLicenseByINN($inn, $licenses) {
+    if (empty($inn) || empty($licenses)) {
         return null;
     }
-    
-    $normalizedSearch = normalizeCompanyName($companyName);
-    $searchVariants = [$normalizedSearch];
-    
-    // без кавычек
-    $searchVariants[] = str_replace(['"', "'", '«', '»'], '', $normalizedSearch);
-    
-    // без приставок в скобках
-    $searchVariants[] = preg_replace('/\s*\([^)]*\)/', '', $normalizedSearch);
-    
-    // первые слова
-    $words = explode(' ', $normalizedSearch);
-    if (count($words) > 1) {
-        $searchVariants[] = $words[0]; // первое слово
-        $searchVariants[] = implode(' ', array_slice($words, 0, 2)); // первые 2 слова
-        if (count($words) > 2) {
-            $searchVariants[] = implode(' ', array_slice($words, 0, 3)); // первые 3 слова
+
+    // ищем по ИНН
+    foreach ($licenses as $license) {
+        if (!empty($license['inn']) && $license['inn'] === $inn) {
+            return $license;
         }
     }
     
-    // убираем дубликаты и пустые значения
-    $searchVariants = array_filter(array_unique($searchVariants));
-    
-    foreach ($licenses as $index => $license) {
-        $licenseName = $license['companyName'] ?? '';
-        
-        foreach ($searchVariants as $variant) {
-            if (empty($variant) || empty($licenseName)) continue;
-            
-            // совпадение
-            if ($licenseName === $variant) {
-                return $license;
-            }
-            
-            // строка содержит другую
-            if (strpos($licenseName, $variant) !== false || 
-                strpos($variant, $licenseName) !== false) {
-                return $license;
-            }
-            
-            // первые слова
-            $licenseFirstWord = explode(' ', $licenseName)[0] ?? '';
-            $searchFirstWord = explode(' ', $variant)[0] ?? '';
-            
-            if (!empty($licenseFirstWord) && !empty($searchFirstWord) && 
-                $licenseFirstWord === $searchFirstWord) {
-                return $license;
-            }
-        }
-    }
     return null;
 }
 
@@ -443,36 +394,6 @@ function normalizeCompanyName($name) {
     $name = trim($name);
     
     return $name;
-}
-
-// извлечение названия компании из адреса
-function extractCompanyNameFromAddress($address) {
-    
-    //"УК 'НАЗВАНИЕ', адрес: ..."
-    if (preg_match('/УК\s+["\']([^"\']+)["\']/', $address, $matches)) {
-        return $matches[1];
-    }
-    
-    // "Управляющая компания 'НАЗВАНИЕ'"
-    if (preg_match('/Управляющая компания\s+["\']([^"\']+)["\']/', $address, $matches)) {
-        return $matches[1];
-    }
-    
-    // "ООО 'НАЗВАНИЕ'"
-    if (preg_match('/(?:ООО|АО|ЗАО|ПАО)\s+["\']([^"\']+)["\']/', $address, $matches)) {
-        return $matches[1];
-    }
-    
-    // просто текст в кавычках
-    if (preg_match('/["\']([А-ЯЁ0-9\s\-]+)["\']/u', $address, $matches)) {
-        $possibleName = $matches[1];
-        // Проверяем, что это не адрес (не содержит "ул.", "д.", "к." и т.д.)
-        if (!preg_match('/(ул\.|д\.|к\.|корп\.|стр\.|лит\.)/ui', $possibleName)) {
-            return $possibleName;
-        }
-    }
-    
-    return null;
 }
 
 // форматирование даты лицензии
@@ -547,5 +468,97 @@ function loadLicensesFromAPI() {
         usleep(100000); // 100ms пауза
     }
     return $licenses;
+}
+function getViolationsByINN($inn) {
+    $cacheFile = CACHE_DIR . 'violations.cache';
+    
+    // данные о нарушениях
+    if (!file_exists($cacheFile) || (time() - filemtime($cacheFile) > CACHE_TIME)) {
+        $violationsData = loadViolationsFromAPI();
+        file_put_contents($cacheFile, json_encode($violationsData, JSON_UNESCAPED_UNICODE));
+    } else {
+        $violationsData = json_decode(file_get_contents($cacheFile), true);
+    }
+    
+    // ИНН пустой возвращаем нулевые нарушения
+    if (empty($inn)) {
+        return json_encode([
+            'inn' => $inn,
+            'totalViolations' => 0,
+            'year' => 2025,
+            'message' => 'ИНН не указан'
+        ], JSON_UNESCAPED_UNICODE);
+    }
+    
+    // нарушения по ИНН
+    $companyViolations = [];
+    $totalViolations = 0;
+    
+    foreach ($violationsData as $violation) {
+        if (!empty($violation['INN']) && $violation['INN'] == $inn && $violation['Year'] == 2025) {
+            $companyViolations[] = $violation;
+            $totalViolations += (int)($violation['ViolationsAmount'] ?? 0);
+        }
+    }
+    
+    return json_encode([
+        'inn' => $inn,
+        'totalViolations' => $totalViolations,
+        'violationsList' => $companyViolations,
+        'year' => 2025,
+        'found' => count($companyViolations) > 0
+    ], JSON_UNESCAPED_UNICODE);
+}
+
+// данные о нарушениях с апи
+function loadViolationsFromAPI() {
+    $violations = [];
+    $skip = 0;
+    $hasMore = true;
+    
+    while ($hasMore) {
+        $url = sprintf(
+            'https://apidata.mos.ru/v1/datasets/%d/rows?api_key=%s&$top=%d&$skip=%d',
+            1983,
+            API_KEY,
+            BATCH_SIZE,
+            $skip
+        );
+        
+        $response = @file_get_contents($url);
+        if ($response === false) {
+            error_log("Ошибка загрузки нарушений, skip: $skip");
+            break;
+        }
+        
+        $data = json_decode($response, true);
+        if (empty($data)) {
+            $hasMore = false;
+            break;
+        }
+        
+        foreach ($data as $item) {
+            $violation = $item['Cells'] ?? [];
+            if (empty($violation['INN']) || empty($violation['Year'])) continue;
+            
+            // только 2025 год и данные с инн
+            if ($violation['Year'] == 2025 && !empty($violation['INN'])) {
+                $violations[] = [
+                    'INN' => $violation['INN'],
+                    'Year' => $violation['Year'],
+                    'CompanyName' => $violation['NameOfManagingOrg'] ?? '',
+                    'ViolationsAmount' => $violation['ViolationsAmount'] ?? 0,
+                    'IssuedPrescriptions' => $violation['IssuedPrescriptions'] ?? 0  
+                ];
+            }
+        }
+        
+        $skip += BATCH_SIZE;
+        if (count($data) < BATCH_SIZE) $hasMore = false;
+        
+        usleep(100000);
+    }
+    
+    return $violations;
 }
 ?>

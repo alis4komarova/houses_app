@@ -15,13 +15,12 @@ function init() {
         center: CONFIG.MAP_CENTER,
         zoom: CONFIG.MAP_ZOOM,
         controls: ['zoomControl'],
-        maxZoom: 18, // <-- ДОБАВЛЯЕМ максимальный зум
-        minZoom: 9    // <-- ДОБАВЛЯЕМ минимальный зум
+        maxZoom: 18, // максимальный зум
+        minZoom: 9    // минимальный зум
     });
     
-    // Добавляем обработчик изменения зума
+    // обработчик изменения зума
     map.events.add('boundschange', function(event) {
-        // Проверяем, не слишком ли сильно приблизились
         const currentZoom = map.getZoom();
         if (currentZoom > 18) {
             map.setZoom(18);
@@ -131,7 +130,7 @@ function displayHouses(houses) {
         );
          // обработчик клика на маркер
         marker.events.add('click', function() {
-            showHouseDetails(house.address, house.admArea, house.district,house.companyName);
+            showHouseDetails(house.address, house.admArea, house.district,house.companyName,house.INN || '',house.violationsText);
         });
         
         map.geoObjects.add(marker);
@@ -161,28 +160,55 @@ function updateStatus(message, type = '') {
     else if (type === 'success') statusEl.classList.add('status-success');
 }
 // для показа деталей дома
-// app.js - ЗАМЕНЯЕМ функцию showHouseDetails:
-async function showHouseDetails(address, admArea = '', district = '', companyName = '') {
-    updateStatus('Загрузка информации о лицензии...', 'loading');
+async function showHouseDetails(address, admArea = '', district = '', companyName = '', inn = '') {
+    updateStatus('Загрузка информации о лицензии и нарушениях...', 'loading');
     
     try {
-        const url = `/backend/api.php?action=get-license-info&address=${encodeURIComponent(address)}&company=${encodeURIComponent(companyName)}`;
-        const response = await fetch(url);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+        const requests = [
+            fetch(`/backend/api.php?action=get-license-info&inn=${encodeURIComponent(inn)}`)
+        ];
+        if (inn) {
+            requests.push(fetch(`/backend/api.php?action=get-violations&inn=${encodeURIComponent(inn)}`));
+        } else {
+            requests.push(Promise.resolve(null));
         }
         
-        const licenseInfo = await response.json();
+        const [licenseResponse, violationsResponse] = await Promise.all(requests);
         
-        // Новая логика: только проверка наличия лицензии
+        if (!licenseResponse.ok) {
+            throw new Error(`HTTP error! status: ${licenseResponse.status}`);
+        }
+        
+        const licenseInfo = await licenseResponse.json();
+        let violationsInfo = null;
+        if (violationsResponse && violationsResponse !== null) {
+            violationsInfo = await violationsResponse.json();
+        }
+        
+        // для лицензии
         let licenseText = '';
         if (licenseInfo.hasLicense) {
             licenseText = `<div class="license-status license-yes">Лицензия есть ${licenseInfo.licenseDate ? 'с ' + licenseInfo.licenseDate : ''}</div>`;
         } else {
-            licenseText = '<div class="license-status license-no">Лицензия не найдена</div>';
+            licenseText = `<div class="license-status license-no">${licenseInfo.message || 'Лицензия не найдена'}</div>`;
         }
         
+        // для нарушений
+        let violationsText = '';
+        if (violationsInfo && violationsInfo.totalViolations !== undefined && violationsInfo.totalViolations !== null) {
+            if (violationsInfo.totalViolations > 0) {
+                violationsText = `<div class="violations-status violations-medium">${violationsInfo.totalViolations}</div>`;
+            } else {
+                violationsText = '<div class="violations-status violations-none">Нет</div>';
+            }
+        } else if (violationsInfo && violationsInfo.message) {
+            violationsText = `<div class="violations-status violations-unknown">${violationsInfo.message}</div>`;
+        } else if (!inn) {
+            violationsText = '<div class="violations-status violations-unknown">ИНН не указан</div>';
+        } else {
+            violationsText = '<div class="violations-status violations-unknown">Данных о нарушениях нет</div>';
+        }
+
         const houseInfoHTML = `
             <div class="house-details">
                 <div class="house-address">${address}</div>
@@ -199,8 +225,16 @@ async function showHouseDetails(address, admArea = '', district = '', companyNam
                     <span class="info-value">${companyName || 'Не указана'}</span>
                 </div>
                 <div class="info-row">
+                    <span class="info-label">ИНН:</span>
+                    <span class="info-value">${inn || 'Не указан'}</span>
+                </div>
+                <div class="info-row">
                     <span class="info-label">Статус лицензии:</span>
                     <div class="info-value">${licenseText}</div>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Нарушения УК за 2025 год:</span>
+                    <div class="info-value">${violationsText}</div>
                 </div>
             </div>
         `;
@@ -209,8 +243,7 @@ async function showHouseDetails(address, admArea = '', district = '', companyNam
         updateStatus('Информация загружена', 'success');
         
     } catch (error) {
-        console.error('Ошибка загрузки лицензии:', error);
-        
+        console.error('Ошибка загрузки информации:', error);
         const houseInfoHTML = `
             <div class="house-details">
                 <div class="house-address">${address}</div>
@@ -227,15 +260,25 @@ async function showHouseDetails(address, admArea = '', district = '', companyNam
                     <span class="info-value">${companyName || 'Не указана'}</span>
                 </div>
                 <div class="info-row">
+                    <span class="info-label">ИНН:</span>
+                    <span class="info-value">${inn || 'Не указан'}</span>
+                </div>
+                <div class="info-row">
                     <span class="info-label">Статус лицензии:</span>
                     <div class="info-value">
                         <span class="license-status license-error">Ошибка загрузки</span>
+                    </div>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Нарушения УК за 2025 год:</span>
+                    <div class="info-value">
+                        <span class="violations-status violations-error">Ошибка загрузки</span>
                     </div>
                 </div>
             </div>
         `;
         
         document.getElementById('house-info').innerHTML = houseInfoHTML;
-        updateStatus('Ошибка загрузки лицензии', 'error');
+        updateStatus('Ошибка загрузки информации', 'error');
     }
 }
