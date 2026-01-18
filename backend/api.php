@@ -87,6 +87,17 @@ if ($action === 'get-houses') {
 } elseif ($action === 'get-uk-rating-2024') {
     $inn = $_GET['inn'] ?? '';
     echo getRating2024($inn);
+} elseif ($action === 'get-houses-in-radius') {
+    $lat = $_GET['lat'] ?? 0;
+    $lon = $_GET['lon'] ?? 0;
+    $radius = $_GET['radius'] ?? 500;
+    
+    if (!$lat || !$lon) {
+        echo json_encode(['error' => 'Не указаны координаты']);
+        exit;
+    }
+    
+    echo getHousesInRadius($lat, $lon, $radius);
 } else {
     echo json_encode(['error' => 'Неизвестное действие']);
 }
@@ -661,5 +672,47 @@ function loadRating2024FromAPI() {
         return ($a['FinalRating'] ?? 999999) <=> ($b['FinalRating'] ?? 999999);
     });
     return $ratingData;
+}
+
+// для получения домов в радиусе
+function getHousesInRadius($lat, $lon, $radius) {
+    $cacheFile = CACHE_DIR . 'all_houses.cache';
+    if (!file_exists($cacheFile)) {
+        return json_encode(['houses' => []]);
+    }
+    
+    $allHouses = json_decode(file_get_contents($cacheFile), true);
+    $nearbyHouses = [];
+    
+    foreach ($allHouses as $house) {
+        $distance = calculateDistance($lat, $lon, $house['lat'], $house['lon']);
+        if ($distance <= $radius) {
+            $nearbyHouses[] = $house;
+        }
+    }
+    
+    return json_encode([
+        'houses' => $nearbyHouses,
+        'count' => count($nearbyHouses),
+        'radius' => $radius
+    ], JSON_UNESCAPED_UNICODE);
+}
+
+// расчет расстояния гаверсинусы
+// a = hav(0) = sin²(θ/2) = (1 - cos θ)/2
+//tan(θ/2) = sin(θ/2) / cos(θ/2) = sqrt(a) / sqrt(1-a)
+function calculateDistance($lat1, $lon1, $lat2, $lon2) {
+    $earthRadius = 6371000; // в метрах
+    
+    $latDelta = deg2rad($lat2 - $lat1); // разница широты в радианах 
+    $lonDelta = deg2rad($lon2 - $lon1); // разница долготы в радианах
+    
+    $a = sin($latDelta/2) * sin($latDelta/2) + //вертикальная компонента
+         cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * //поправка на радиус параллели
+         sin($lonDelta/2) * sin($lonDelta/2); //горизонтальная компонента
+    
+    $c = 2 * atan2(sqrt($a), sqrt(1-$a)); //центральный угол по гаверсинусам
+    
+    return $earthRadius * $c; // длина дуги = радиус * центральный угол
 }
 ?>

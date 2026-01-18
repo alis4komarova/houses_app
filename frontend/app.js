@@ -5,6 +5,7 @@ const CONFIG = {
 
 let map = null;
 let isProcessing = false;
+let currentMarkers = []; // храним маркеры для изменения цвета
 
 // инициализация
 ymaps.ready(init);
@@ -87,7 +88,9 @@ async function showHouses(area = '') {
     if (isProcessing) return;
     isProcessing = true;
     
+    // удаляем все маркеры
     map.geoObjects.removeAll();
+    currentMarkers = []; // очищаем массив маркеров
     updateStatus('Загрузка домов...', 'loading');
     
     try {
@@ -111,6 +114,15 @@ async function showHouses(area = '') {
 // дома на карте
 function displayHouses(houses) {
     houses.forEach(house => {
+         if (house.lat < 55.55 || house.lat > 55.92 || 
+            house.lon < 37.35 || house.lon > 37.85) {
+            if (house.lat >= 55.98 && house.lat <= 56.10 && 
+                house.lon >= 37.10 && house.lon <= 37.25) {
+                // зеленоград
+            } else {
+                return; // пропускаем
+            }
+        }
         const marker = new ymaps.Placemark(
             [house.lat, house.lon],
             {
@@ -128,12 +140,29 @@ function displayHouses(houses) {
                 iconColor: '#3498db'
             }
         );
-         // обработчик клика на маркер
+        // сохраняем данные дома в маркер
+        marker.houseData = house;
+        // обработчик клика на маркер
         marker.events.add('click', function() {
-            showHouseDetails(house.address, house.admArea, house.district,house.companyName,house.INN || '',house.violationsText);
+            setTimeout(() => {
+        const balloon = document.querySelector('.ymaps-balloon');
+        if (balloon) {
+            const rect = balloon.getBoundingClientRect();
+            balloon.style.transform = 'translateY(-10px)';
+        }
+    }, 100);
+            // открываем балун при клике
+            marker.balloon.open();
+            showHouseDetails(house.address, house.admArea, house.district, house.companyName, house.INN || '', house.violationsText, marker);
+        });
+        
+        // обработчик открытия балуна - изменение цвета маркера
+        marker.events.add('balloonopen', function() {
+            updateMarkerColor(marker);
         });
         
         map.geoObjects.add(marker);
+        currentMarkers.push(marker); //в массив для управления цветом
     });
     
     // центрирование карты
@@ -159,8 +188,52 @@ function updateStatus(message, type = '') {
     else if (type === 'error') statusEl.classList.add('status-error');
     else if (type === 'success') statusEl.classList.add('status-success');
 }
+
+// для получения цвета по индексу
+function getColorByIndex(index) {
+    if (index >= 0.7) return '#2ecc71';
+    if (index >= 0.5) return '#f39c12';
+    return '#e74c3c';
+}
+
+// для обновления цвета маркера на основе индекса
+function updateMarkerColor(marker) {
+    if (!marker || !marker.houseData) return;
+    
+    marker.options.set({
+        iconColor: '#3498db'
+    });
+}
+
+// расчет индекса дома без соседей
+function calculateHouseIndex(licenseInfo, violationsInfo, ratingInfo) {
+    let score = 0;
+    
+    // лицензия 50%
+    if (licenseInfo && licenseInfo.hasLicense) score += 50;
+    
+    // нарушения 30%
+    if (violationsInfo && violationsInfo.totalViolations !== undefined) {
+        const maxViolations = 20;
+        const violationScore = Math.max(0, 30 * (1 - (violationsInfo.totalViolations / maxViolations)));
+        score += violationScore;
+    } else {
+        score += 15; // среднее значение если данных нет
+    }
+    
+    // рейтинг 20%
+    if (ratingInfo && ratingInfo.place !== null && ratingInfo.total > 0) {
+        const ratingScore = 20 * (1 - (ratingInfo.place - 1) / ratingInfo.total);
+        score += Math.max(0, ratingScore);
+    } else {
+        score += 10; // среднее значение если данных нет
+    }
+    
+    return score / 100; // нормализуем к 0 или 1
+}
+
 // для показа деталей дома
-async function showHouseDetails(address, admArea = '', district = '', companyName = '', inn = '') {
+async function showHouseDetails(address, admArea = '', district = '', companyName = '', inn = '', violationsText = '', marker = null) {
     updateStatus('Загрузка информации о доме...', 'loading');
     
     try {
@@ -189,6 +262,112 @@ async function showHouseDetails(address, admArea = '', district = '', companyNam
         }
         if (ratingResponse && ratingResponse !== null) {
             ratingInfo = await ratingResponse.json();
+        }
+        // рассчитываем индекс дома
+        const houseIndex = calculateHouseIndex(licenseInfo, violationsInfo, ratingInfo);
+        
+        // дома в радиусе 500 метров для расчета индекса окружения
+        let neighborIndex = 0;
+        let neighborCount = 0;
+        let hasNeighbors = false;
+        
+        try {
+            // если есть координаты маркера получаем дома в радиусе
+            if (marker && marker.geometry) {
+                const coords = marker.geometry.getCoordinates();
+                const radiusResponse = await fetch(
+                    `/backend/api.php?action=get-houses-in-radius&lat=${coords[0]}&lon=${coords[1]}&radius=500`
+                );
+                if (radiusResponse.ok) {
+                    const radiusData = await radiusResponse.json();
+                    const nearbyHouses = radiusData.houses || [];
+                    
+                    // фильтруем выбранный дом из списка соседей
+                    const neighborHouses = nearbyHouses.filter(h => 
+                        h.address !== address
+                    );
+                    neighborCount = neighborHouses.length;
+                    
+                    // расчет индекса соседей (каждый как у основного дома)
+                    if (neighborHouses.length > 0) {
+                        hasNeighbors = true;
+                        let neighborScores = 0;
+                        let processedNeighbors = 0;
+                        
+                        // для каждого соседа получаем данные и рассчитываем индекс
+                        for (const neighbor of neighborHouses) {
+                            if (neighbor.INN && neighbor.INN.trim() !== '') {
+                                try {
+                                    const [neighborLicenseRes, neighborViolationsRes, neighborRatingRes] = await Promise.all([
+                                        fetch(`/backend/api.php?action=get-license-info&inn=${encodeURIComponent(neighbor.INN)}`),
+                                        fetch(`/backend/api.php?action=get-violations&inn=${encodeURIComponent(neighbor.INN)}`),
+                                        fetch(`/backend/api.php?action=get-uk-rating-2024&inn=${encodeURIComponent(neighbor.INN)}`)
+                                    ]);
+                                    
+                                    const neighborLicense = await neighborLicenseRes.json();
+                                    const neighborViolations = neighborViolationsRes.ok ? await neighborViolationsRes.json() : null;
+                                    const neighborRating = neighborRatingRes.ok ? await neighborRatingRes.json() : null;
+                                    
+                                    // рассчитываем индекс для соседа
+                                    const neighborHouseIndex = calculateHouseIndex(neighborLicense, neighborViolations, neighborRating);
+                                    neighborScores += neighborHouseIndex;
+                                    processedNeighbors++;
+                                    
+                                } catch (error) {
+                                    console.log('Ошибка загрузки данных соседа:', neighbor.INN, error);
+                                    neighborScores += 0.5; // среднее значение
+                                    processedNeighbors++;
+                                }
+                            } else {
+                                // если нет инн используем минимальное значение
+                                neighborScores += 0.2;
+                                processedNeighbors++;
+                            }
+                        }
+                        
+                        if (processedNeighbors > 0) {
+                            neighborIndex = neighborScores / processedNeighbors;
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Ошибка загрузки соседей:', error);
+            hasNeighbors = false;
+        }
+        
+        // общий индекс (65% дома + 35% соседей если есть соседи, иначе 100% дома)
+        let totalIndex;
+        let neighborInfluenceText = '';
+        
+        if (neighborCount > 0) {
+            totalIndex = houseIndex * 0.65 + neighborIndex * 0.35;
+            neighborInfluenceText = `${(neighborIndex * 100).toFixed(0)}/100 (на основе ${neighborCount} домов)`;
+        } else {
+            totalIndex = houseIndex; // учитываем только индекс самого дома
+            neighborInfluenceText = `нет соседних домов в радиусе 500м`;
+        }
+        
+        // определяем цвет индекса
+        let indexColorClass = 'index-bad';
+        let indexText = 'Низкий';
+        
+        if (totalIndex >= 0.7) {
+            indexColorClass = 'index-good';
+            indexText = 'Высокий';
+        } else if (totalIndex >= 0.5) {
+            indexColorClass = 'index-medium';
+            indexText = 'Средний';
+        }
+        
+        // обновляем цвет маркера
+        if (marker) {
+            marker.options.set({
+                iconColor: getColorByIndex(totalIndex)
+            });
+            
+            // открываем балун маркера
+            marker.balloon.open();
         }
         
         // для лицензии
@@ -230,6 +409,19 @@ async function showHouseDetails(address, admArea = '', district = '', companyNam
         const houseInfoHTML = `
             <div class="house-details">
                 <div class="house-address">${address}</div>
+                <div class="index-display ${indexColorClass}" style="margin: 15px 0; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold;">
+                    Общий индекс качества дома: ${(totalIndex * 100).toFixed(0)}/100 (${indexText})
+                </div>
+                
+                <div class="info-row">
+                    <span class="info-label">Индекс самого дома:</span>
+                    <span class="info-value">${(houseIndex * 100).toFixed(0)}/100</span>
+                </div>
+                
+                <div class="info-row">
+                    <span class="info-label">Индекс окружения 500м:</span>
+                    <span class="info-value">${neighborInfluenceText}</span>
+                </div>
                 <div class="info-row">
                     <span class="info-label">Округ:</span>
                     <span class="info-value">${admArea || 'Не указан'}</span>
@@ -269,6 +461,19 @@ async function showHouseDetails(address, admArea = '', district = '', companyNam
         const houseInfoHTML = `
             <div class="house-details">
                 <div class="house-address">${address}</div>
+                <div class="index-display ${indexColorClass}" style="margin: 15px 0; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold;">
+                    Общий индекс качества дома: ${(totalIndex * 100).toFixed(0)}/100 (${indexText})
+                </div>
+                
+                <div class="info-row">
+                    <span class="info-label">Индекс самого дома:</span>
+                    <span class="info-value">${(houseIndex * 100).toFixed(0)}/100</span>
+                </div>
+                
+                <div class="info-row">
+                    <span class="info-label">Индекс окружения (500м):</span>
+                    <span class="info-value">${neighborInfluenceText}</span>
+                </div>
                 <div class="info-row">
                     <span class="info-label">Округ:</span>
                     <span class="info-value">${admArea || 'Не указан'}</span>
