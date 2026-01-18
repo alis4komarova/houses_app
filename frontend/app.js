@@ -153,7 +153,7 @@ function displayHouses(houses) {
     }, 100);
             // открываем балун при клике
             marker.balloon.open();
-            showHouseDetails(house.address, house.admArea, house.district, house.companyName, house.INN || '', house.violationsText, marker);
+            showHouseDetails(house.address, house.admArea, house.district, house.companyName, house.INN || '', house.violationsText, marker, house.homesQuantity);
         });
         
         // обработчик открытия балуна - изменение цвета маркера
@@ -233,7 +233,7 @@ function calculateHouseIndex(licenseInfo, violationsInfo, ratingInfo) {
 }
 
 // для показа деталей дома
-async function showHouseDetails(address, admArea = '', district = '', companyName = '', inn = '', violationsText = '', marker = null) {
+async function showHouseDetails(address, admArea = '', district = '', companyName = '', inn = '', violationsText = '', marker = null, homesQuantity='') {
     updateStatus('Загрузка информации о доме...', 'loading');
     
     try {
@@ -439,6 +439,10 @@ async function showHouseDetails(address, admArea = '', district = '', companyNam
                     <span class="info-value">${inn || 'Не указан'}</span>
                 </div>
                 <div class="info-row">
+                    <span class="info-label">Количество домов в управлении:</span>
+                    <span class="info-value">${homesQuantity || 'Не указано'}</span>
+                </div>
+                <div class="info-row">
                     <span class="info-label">Статус лицензии:</span>
                     <div class="info-value">${licenseText}</div>
                 </div>
@@ -489,6 +493,10 @@ async function showHouseDetails(address, admArea = '', district = '', companyNam
                 <div class="info-row">
                     <span class="info-label">ИНН:</span>
                     <span class="info-value">${inn || 'Не указан'}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Количество домов в управлении:</span>
+                    <span class="info-value">${homesQuantity || 'Не указано'}</span>
                 </div>
                 <div class="info-row">
                     <span class="info-label">Статус лицензии:</span>

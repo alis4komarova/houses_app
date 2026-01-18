@@ -141,6 +141,7 @@ function getHouses($area = '') {
                 if (isTCH($company)) continue;
                 
                 $coords = getCoordinates($company);
+                $companyHomesQuantity = $company['HomesQuantity'] ?? 0;
                 
                 foreach ($company['MKD'] as $index => $house) {
                     if (empty($house['Address']) || empty($house['AdmArea'])) continue;
@@ -159,6 +160,7 @@ function getHouses($area = '') {
                         'companyShortName' => $company['ShortName'] ?? '',
                         'district' => $house['District'] ?? '',
                         'admArea' => $house['AdmArea'],
+                        'homesQuantity' => $companyHomesQuantity,
                         'INN' => $company['INN']
                     ];
                 }
