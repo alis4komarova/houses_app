@@ -1,3 +1,9 @@
+<?php
+session_start();
+require_once '../backend/database.php';
+
+$user = getCurrentUser();
+?>
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -9,9 +15,23 @@
 </head>
 <body>
     <div class="header">
-        <h1>Жилые дома Москвы</h1>
-        <p>Карта жилых домов с информацией об управляющих компаниях</p>
+    <h1>Жилые дома Москвы</h1>
+    <p>Карта жилых домов с информацией об управляющих компаниях</p>
+    
+    <?php if ($user): ?>
+    <div class="header-user-info">
+        <span class="header-user-email">
+            Привет, <?php echo htmlspecialchars($user['email']); ?>!
+        </span>
+        <a href="logout.php" class="header-logout-button">Выйти</a>
     </div>
+    <?php else: ?>
+        <div class="header-auth-links">
+            <a href="login.php" class="header-auth-link">Вход</a>
+            <a href="register.php" class="header-auth-link">Регистрация</a>
+        </div>
+    <?php endif; ?>
+</div>
     
     <div class="container">
         <div class="filter-group">
