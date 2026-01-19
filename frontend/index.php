@@ -36,7 +36,20 @@ $user = getCurrentUser();
     
     <div class="container">
         <div class="filter-group">
-            <div id="admarea-filter"></div>
+    <div class="filter-row">
+        <div class="search-container">
+            <input type="text" id="address-search" 
+                   placeholder="Введите адрес, улицу, район или название УК..." 
+                   style="width: 450px; padding: 12px 15px; font-size: 15px;">
+            <div id="search-results"></div>
+        </div>
+        
+        <div class="area-select-container">
+            <select id="admarea-select">
+                <option value="">Все округа</option>
+            </select>
+                </div>
+            </div>
         </div>
         
         <div class="main-content">

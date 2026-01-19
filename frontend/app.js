@@ -6,6 +6,7 @@ const CONFIG = {
 let map = null;
 let isProcessing = false;
 let currentMarkers = []; // храним маркеры для изменения цвета
+let allHousesCache = []; // для кэша домов
 
 // инициализация
 ymaps.ready(init);
@@ -37,7 +38,19 @@ function init() {
             </div>
         </div>
     `;
+     document.getElementById('house-info').innerHTML = `
+        <div class="placeholder">
+            Выберите дом на карте или воспользуйтесь поиском
+            <div style="margin-top: 10px; font-size: 12px; color: #777;">
+                Будут показаны: адрес, округ, район, статус лицензии
+            </div>
+        </div>
+    `;
     
+    // инициализируем поиск
+    setTimeout(() => {
+        initAddressSearch();
+    }, 1000);
     
     loadAndShowFilters();
 }
@@ -66,11 +79,13 @@ async function loadAndShowFilters() {
 
 // выпадающий список
 function createFilterSelect(areas) {
-    const filterDiv = document.getElementById('admarea-filter');
-    if (!filterDiv) return;
-    
-    filterDiv.innerHTML = '<select id="admarea-select"><option value="">Все округа</option></select>';
     const select = document.getElementById('admarea-select');
+    if (!select) return;
+    
+    // очищаем только опции кроме первого
+    while (select.options.length > 1) {
+        select.remove(1);
+    }
     
     areas.sort().forEach(area => {
         const option = document.createElement('option');
@@ -696,4 +711,435 @@ async function addToFavorite(house, marker) {
         showNotification('Ошибка при добавлении в избранное', 'error');
         return false;
     }
+}
+// инициализация поиска по адресу
+function initAddressSearch() {
+    const searchInput = document.getElementById('address-search');
+    const resultsContainer = document.getElementById('search-results');
+    
+    if (!searchInput) return;
+    
+    // загружаем кэш домов
+    loadAllHousesCache();
+    
+    // обработчик ввода
+    let searchTimeout;
+    searchInput.addEventListener('input', function() {
+        clearTimeout(searchTimeout);
+        
+        // показываем индикатор загрузки если кэш еще не загружен
+        if (allHousesCache.length === 0) {
+            resultsContainer.innerHTML = '<div class="no-results">Загрузка базы домов...</div>';
+            resultsContainer.style.display = 'block';
+            return;
+        }
+        
+        searchTimeout = setTimeout(() => {
+            performSearch(this.value);
+        }, 300);
+    });
+    
+    // скрываем результаты при клике вне поиска
+    document.addEventListener('click', function(e) {
+        if (!searchInput.contains(e.target) && !resultsContainer.contains(e.target)) {
+            resultsContainer.style.display = 'none';
+        }
+    });
+    
+    // обработчик клавиш
+    searchInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            resultsContainer.style.display = 'none';
+        }
+    });
+}
+
+// загрузка кэша всех домов
+async function loadAllHousesCache() {
+    if (allHousesCache.length > 0) return;
+    
+    try {
+        const response = await fetch('../backend/api.php?action=get-houses&cache_only=true');
+        const data = await response.json();
+        
+        if (data.houses && Array.isArray(data.houses)) {
+            allHousesCache = data.houses;
+            console.log(`Загружен кэш домов: ${allHousesCache.length} записей`);
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки кэша домов:', error);
+    }
+}
+
+
+// выполнение поиска
+function performSearch(query) {
+    const resultsContainer = document.getElementById('search-results');
+    const searchInput = document.getElementById('address-search');
+    
+    if (!allHousesCache.length) {
+        resultsContainer.innerHTML = '<div class="no-results">Загружаем базу домов...</div>';
+        resultsContainer.style.display = 'block';
+        return;
+    }
+    
+    // нормализуем запрос для поиска
+    const normalizedQuery = query.toLowerCase()
+        .replace(/ул\.|улица|просп\.|проспект|пр-т|пр\.|бульвар|б-р|переулок|пер\.|площадь|пл\./g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    
+    if (!normalizedQuery) {
+        resultsContainer.style.display = 'none';
+        return;
+    }
+    
+    // разбиваем запрос на слова для более точного поиска
+    const queryWords = normalizedQuery.split(/\s+/).filter(word => {
+        // оставляем слова длиной > 1 или цифры (номера домов)
+        return word.length > 1 || /^\d+$/.test(word);
+    });
+    
+    if (queryWords.length === 0) {
+        resultsContainer.style.display = 'none';
+        return;
+    }
+    
+    // фильтруем дома по запросу
+    const searchResults = allHousesCache.filter(house => {
+        const address = house.address.toLowerCase();
+        const company = house.companyName.toLowerCase();
+        const district = house.district.toLowerCase();
+        const admArea = house.admArea.toLowerCase();
+        
+        // проверяем все слова запроса
+        // дом должен содержать все слова из запроса
+        const matchesAllWords = queryWords.every(word => {
+            // число ищем точное совпадение
+            if (/^\d+$/.test(word)) {
+                // Ищем номер дома в адресе
+                const addressParts = address.split(/[,\s]+/);
+                return addressParts.some(part => part === word);
+            }
+            
+            // для обычных слов ищем вхождение
+            return address.includes(word) || 
+                   company.includes(word) ||
+                   district.includes(word) ||
+                   admArea.includes(word);
+        });
+        
+        return matchesAllWords;
+    }).slice(0, 7);
+    
+    // отображаем результаты
+    if (searchResults.length === 0) {
+        resultsContainer.innerHTML = `
+            <div class="no-results">
+                Ничего не найдено. Попробуйте:
+                <div style="margin-top: 5px; font-size: 12px;">
+                    1. Проверить правильность написания<br>
+                    2. Искать только улицу без номера дома<br>
+                    3. Искать по названию УК
+                </div>
+            </div>
+        `;
+        resultsContainer.style.display = 'block';
+    } else {
+        let html = '';
+        searchResults.forEach((house, index) => {
+            // форматируем информацию о компании
+            const companyDisplay = house.companyName.length > 30 
+                ? house.companyName.substring(0, 30) + '...' 
+                : house.companyName;
+            
+            html += `
+                <div class="search-result-item" data-index="${index}" 
+                     data-lat="${house.lat}" data-lon="${house.lon}"
+                     data-address="${house.address}"
+                     data-admarea="${house.admArea}"
+                     data-district="${house.district}"
+                     data-company="${house.companyName}"
+                     data-inn="${house.INN}"
+                     data-homesquantity="${house.homesQuantity}">
+                    <div class="search-result-address">
+                        ${house.address}
+                    </div>
+                    <div class="search-result-info">
+                        <span>${house.admArea}</span>
+                        <span>${house.district || 'Район не указан'}</span>
+                        <span>${companyDisplay}</span>
+                    </div>
+                </div>
+            `;
+        });
+        
+        // добавляем информацию о количестве найденных
+        const totalFound = allHousesCache.filter(house => {
+            const address = house.address.toLowerCase();
+            const company = house.companyName.toLowerCase();
+            const district = house.district.toLowerCase();
+            const admArea = house.admArea.toLowerCase();
+            
+            return queryWords.every(word => {
+                if (/^\d+$/.test(word)) {
+                    const addressParts = address.split(/[,\s]+/);
+                    return addressParts.some(part => part === word);
+                }
+                return address.includes(word) || 
+                       company.includes(word) ||
+                       district.includes(word) ||
+                       admArea.includes(word);
+            });
+        }).length;
+        
+        if (totalFound > 7) {
+            html += `
+                <div class="search-result-item" style="text-align: center; color: #666; font-style: italic; cursor: default;">
+                    Показано 7 из ${totalFound} найденных домов
+                </div>
+            `;
+        }
+        
+        resultsContainer.innerHTML = html;
+        
+        // добавляем обработчики клика
+        document.querySelectorAll('.search-result-item').forEach(item => {
+            if (item.style.cursor !== 'default') {
+                item.addEventListener('click', function() {
+                    const lat = parseFloat(this.dataset.lat);
+                    const lon = parseFloat(this.dataset.lon);
+                    const address = this.dataset.address;
+                    const admArea = this.dataset.admarea;
+                    const district = this.dataset.district;
+                    const companyName = this.dataset.company;
+                    const inn = this.dataset.inn;
+                    const homesQuantity = this.dataset.homesquantity;
+                    
+                    // устанавливаем значение в поле поиска
+                    searchInput.value = address;
+                    resultsContainer.style.display = 'none';
+                    
+                    // показываем уведомление о загрузке
+                    updateStatus('Поиск дома на карте...', 'loading');
+                    
+                    // находим маркер на карте и кликаем по нему
+                    selectHouseOnMap(lat, lon, address, admArea, district, companyName, inn, homesQuantity);
+                    
+                    // прокручиваем страницу к карте
+                    if (window.innerWidth < 768) {
+                        document.querySelector('.map-container').scrollIntoView({ behavior: 'smooth' });
+                    }
+                });
+            }
+        });
+        
+        resultsContainer.style.display = 'block';
+    }
+}
+
+// выбор дома на карте по координатам
+function selectHouseOnMap(lat, lon, address, admArea, district, companyName, inn, homesQuantity) {
+    if (!map) return;
+    
+    // центрируем карту на выбранном доме
+    map.setCenter([lat, lon], 16);
+    
+    // ищем маркер среди текущих маркеров
+    let targetMarker = null;
+    let minDistance = Infinity;
+    
+    // сначала ищем среди видимых маркеров
+    map.geoObjects.each(function(marker) {
+        if (marker.geometry) {
+            const markerCoords = marker.geometry.getCoordinates();
+            const distance = Math.sqrt(
+                Math.pow(markerCoords[0] - lat, 2) + 
+                Math.pow(markerCoords[1] - lon, 2)
+            );
+            
+            if (distance < 0.001 && distance < minDistance) { // приблизительное совпадение координат
+                targetMarker = marker;
+                minDistance = distance;
+            }
+        }
+    });
+    
+    // если маркер найден кликаем по нему
+    if (targetMarker) {
+        // открываем балун маркера
+        targetMarker.balloon.open();
+        
+        // показываем информацию о доме
+        if (targetMarker.houseData) {
+            showHouseDetails(
+                targetMarker.houseData.address,
+                targetMarker.houseData.admArea,
+                targetMarker.houseData.district,
+                targetMarker.houseData.companyName,
+                targetMarker.houseData.INN || '',
+                '',
+                targetMarker,
+                targetMarker.houseData.homesQuantity
+            );
+        }
+        
+        updateStatus('Дом найден на карте', 'success');
+    } else {
+        // если маркер не найден в видимых загружаем дома в радиусе
+        updateStatus('Дом не найден в текущей области. Загружаем ближайшие...', 'loading');
+        findAndSelectNearestHouse(lat, lon, address, admArea, district, companyName, inn, homesQuantity);
+    }
+}
+
+// поиск ближайшего дома по координатам
+async function findAndSelectNearestHouse(lat, lon, address, admArea, district, companyName, inn, homesQuantity) {
+    try {
+        // увеличиваем радиус поиска
+        const response = await fetch(
+            `../backend/api.php?action=get-houses-in-radius&lat=${lat}&lon=${lon}&radius=1000`
+        );
+        
+        if (!response.ok) {
+            throw new Error('Ошибка сети');
+        }
+        
+        const data = await response.json();
+        
+        if (data.houses && data.houses.length > 0) {
+            // сортируем дома по расстоянию
+            data.houses.sort((a, b) => {
+                const distA = calculateDistance(lat, lon, a.lat, a.lon);
+                const distB = calculateDistance(lat, lon, b.lat, b.lon);
+                return distA - distB;
+            });
+            
+            // берем ближайший дом
+            const nearestHouse = data.houses[0];
+            
+            // показываем информацию о доме
+            updateStatus(`Найден ближайший дом (расстояние: ${Math.round(calculateDistance(lat, lon, nearestHouse.lat, nearestHouse.lon))}м)`, 'success');
+            
+            // создаем временный маркер
+            const tempMarker = new ymaps.Placemark(
+                [nearestHouse.lat, nearestHouse.lon],
+                {
+                    balloonContent: `
+                        <div style="padding: 10px; max-width: 250px;">
+                            <div style="font-weight: bold;">${nearestHouse.address}</div>
+                            <div><strong>УК:</strong> ${nearestHouse.companyName}</div>
+                            <div><strong>Округ:</strong> ${nearestHouse.admArea}</div>
+                            <div><strong>Район:</strong> ${nearestHouse.district}</div>
+                        </div>
+                    `
+                },
+                {
+                    preset: 'islands#redCircleIcon',
+                    iconColor: '#e74c3c'
+                }
+            );
+            
+            tempMarker.houseData = nearestHouse;
+            map.geoObjects.add(tempMarker);
+            
+            // открываем балун
+            tempMarker.balloon.open();
+            
+            // показываем детали
+            showHouseDetails(
+                address || nearestHouse.address,
+                admArea || nearestHouse.admArea,
+                district || nearestHouse.district,
+                companyName || nearestHouse.companyName,
+                inn || nearestHouse.INN || '',
+                '',
+                tempMarker,
+                homesQuantity || nearestHouse.homesQuantity
+            );
+            
+            // удаляем временный маркер при закрытии балуна
+            tempMarker.events.add('balloonclose', function() {
+                setTimeout(() => {
+                    if (map.geoObjects.contains(tempMarker)) {
+                        map.geoObjects.remove(tempMarker);
+                    }
+                }, 1000);
+            });
+            
+        } else {
+            // если дом не найден в радиусе
+            updateStatus('Дом не найден в базе данных', 'error');
+            
+            // показываем информацию только из данных поиска
+            const houseInfoHTML = `
+                <div class="house-details">
+                    <div class="house-address">${address}</div>
+                    <div class="message error" style="margin: 15px 0;">
+                        Дом не найден на карте. Возможно, он находится за пределами видимой области.
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Адрес из поиска:</span>
+                        <span class="info-value">${address}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Округ:</span>
+                        <span class="info-value">${admArea || 'Не указан'}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Район:</span>
+                        <span class="info-value">${district || 'Не указан'}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Управляющая компания:</span>
+                        <span class="info-value">${companyName || 'Не указана'}</span>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('house-info').innerHTML = houseInfoHTML;
+        }
+    } catch (error) {
+        console.error('Ошибка поиска ближайшего дома:', error);
+        updateStatus('Ошибка поиска дома', 'error');
+        
+        // показываем информацию только из данных поиска
+        const houseInfoHTML = `
+            <div class="house-details">
+                <div class="house-address">${address}</div>
+                <div class="message error" style="margin: 15px 0;">
+                    Ошибка загрузки данных дома
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Адрес из поиска:</span>
+                    <span class="info-value">${address}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Округ:</span>
+                    <span class="info-value">${admArea || 'Не указан'}</span>
+                </div>
+                <div class="info-row">
+                        <span class="info-label">Район:</span>
+                        <span class="info-value">${district || 'Не указан'}</span>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('house-info').innerHTML = houseInfoHTML;
+    }
+}
+
+// функция для расчета расстояния между координатами
+function calculateDistance(lat1, lon1, lat2, lon2) {
+    const earthRadius = 6371000; // в метрах
+    
+    const latDelta = (lat2 - lat1) * Math.PI/180; // разница широты в радианах
+    const lonDelta = (lon2 - lon1) * Math.PI/180; // разница долготы в радианах
+    
+    const a = Math.sin(latDelta/2) * Math.sin(latDelta/2) + // вертикальная компонента
+              Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) * // поправка на радиус параллели
+              Math.sin(lonDelta/2) * Math.sin(lonDelta/2); // горизонтальная компонента
+    
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); // центральный угол по гаверсинусам
+    
+    return earthRadius * c; // длина дуги = радиус * центральный угол
 }

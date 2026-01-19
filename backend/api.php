@@ -73,9 +73,34 @@ $action = $_GET['action'] ?? '';
 $area = $_GET['area'] ?? '';
 $houseAddress = $_GET['address'] ?? '';
 $companyName = $_GET['company'] ?? '';
+$cacheOnly = isset($_GET['cache_only']) && $_GET['cache_only'] === 'true';
 
 // обработка запросов
-if ($action === 'get-houses') {
+if ($action === 'get-houses' && $cacheOnly) {
+    // возвращаем только из кэша без фильтрации
+    $cacheFile = CACHE_DIR . 'all_houses.cache';
+    
+    if (file_exists($cacheFile) && (time() - filemtime($cacheFile) < CACHE_TIME)) {
+        $allHouses = json_decode(file_get_contents($cacheFile), true);
+        echo json_encode([
+            'houses' => $allHouses,
+            'total' => count($allHouses),
+            'from_cache' => true
+        ], JSON_UNESCAPED_UNICODE);
+    } else {
+        // если кэша нет возвращаем пустой массив
+        echo json_encode([
+            'houses' => [],
+            'total' => 0,
+            'from_cache' => false,
+            'message' => 'Кэш еще не создан'
+        ], JSON_UNESCAPED_UNICODE);
+    }
+}
+elseif ($action === 'get-houses-by-address') {
+    $address = $_GET['address'] ?? '';
+    echo getHousesByAddress($address);
+} elseif ($action === 'get-houses') {
     echo getHouses($area);
 } elseif ($action === 'get-areas') {
     echo getAreas();
@@ -828,5 +853,33 @@ function getHouseByCoordinates($lat, $lon) {
     }
     
     return json_encode(['house' => $closestHouse]);
+}
+function getHousesByAddress($address) {
+    $cacheFile = CACHE_DIR . 'all_houses.cache';
+    if (!file_exists($cacheFile)) {
+        return json_encode(['houses' => []]);
+    }
+    
+    $allHouses = json_decode(file_get_contents($cacheFile), true);
+    $foundHouses = [];
+    
+    // нормализуем адрес для поиска
+    $normalizedAddress = mb_strtolower(trim($address), 'UTF-8');
+    $normalizedAddress = preg_replace('/[.,]/', '', $normalizedAddress);
+    
+    foreach ($allHouses as $house) {
+        $houseAddress = mb_strtolower($house['address'], 'UTF-8');
+        $houseAddress = preg_replace('/[.,]/', '', $houseAddress);
+        
+        // проверяем вхождение адреса
+        if (strpos($houseAddress, $normalizedAddress) !== false) {
+            $foundHouses[] = $house;
+        }
+    }
+    
+    return json_encode([
+        'houses' => $foundHouses,
+        'count' => count($foundHouses)
+    ], JSON_UNESCAPED_UNICODE);
 }
 ?>
