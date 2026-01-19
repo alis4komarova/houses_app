@@ -743,3 +743,178 @@ body.register-page {
     font-weight: bold;
     margin-left: 3px;
 }
+
+/* cтили для кнопки избранного */
+.favorite-btn {
+    background: none;
+    border: none;
+    font-size: 24px;
+    color: #e74c3c;
+    cursor: pointer;
+    margin-left: 10px;
+    transition: transform 0.3s;
+    vertical-align: middle;
+}
+
+.favorite-btn:hover {
+    transform: scale(1.2);
+}
+
+/* cтили для страницы избранного */
+.favorites-container {
+    padding: 20px;
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+.favorites-header {
+    flex-shrink: 0;
+    margin-bottom: 20px;
+    padding: 20px;
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+.favorites-header h2 {
+    color: #2c3e50;
+    margin-bottom: 5px;
+}
+
+.favorites-header p {
+    color: #7f8c8d;
+    font-size: 14px;
+}
+
+.favorite-item {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    border: 1px solid #eaeaea;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    transition: all 0.3s ease;
+}
+
+.favorite-item.expanded {
+    margin-bottom: 30px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.favorite-address {
+    font-weight: bold;
+    font-size: 16px;
+    margin-bottom: 10px;
+    color: #2c3e50;
+}
+
+.favorite-address-loaded {
+    font-weight: bold;
+    font-size: 16px;
+    margin-bottom: 10px;
+    color: #27ae60;
+}
+
+.favorite-actions {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.load-info-btn,
+.remove-favorite-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.load-info-btn {
+    background: #27ae60;
+    color: white;
+}
+
+.remove-favorite-btn {
+    background: #e74c3c;
+    color: white;
+}
+
+.load-info-btn:hover {
+    background: #27ae62;
+}
+
+.remove-favorite-btn:hover {
+    background: #c0392b;
+}
+
+.favorite-details {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 2px solid #eee;
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+.no-favorites {
+    text-align: center;
+    padding: 50px 20px;
+    color: #7f8c8d;
+}
+
+.no-favorites p {
+    margin-bottom: 20px;
+    font-size: 18px;
+}
+
+/* полоса прокрутки для деталей */
+.house-details::-webkit-scrollbar,
+.favorite-details::-webkit-scrollbar {
+    width: 6px;
+}
+
+.house-details::-webkit-scrollbar-track,
+.favorite-details::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.house-details::-webkit-scrollbar-thumb,
+.favorite-details::-webkit-scrollbar-thumb {
+    background: #3498db;
+    border-radius: 3px;
+}
+
+.house-details::-webkit-scrollbar-thumb:hover,
+.favorite-details::-webkit-scrollbar-thumb:hover {
+    background: #2980b9;
+}
+
+/* индикатор что можно прокручивать */
+.scroll-hint {
+    text-align: center;
+    color: #3498db;
+    font-size: 12px;
+    margin-top: 10px;
+    padding: 5px;
+    border-top: 1px dashed #ddd;
+}
+
+.scroll-hint:after {
+    content: "↓";
+    display: inline-block;
+    margin-left: 5px;
+    animation: bounce 2s infinite;
+}
+
+@keyframes bounce {
+    0%, 20%, 50%, 80%, 100% {
+        transform: translateY(0);
+    }
+    40% {
+        transform: translateY(-5px);
+    }
+    60% {
+        transform: translateY(-3px);
+    }
+}

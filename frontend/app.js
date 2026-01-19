@@ -46,7 +46,7 @@ async function loadAndShowFilters() {
     updateStatus('Загрузка округов...', 'loading');
     
     try {
-        const response = await fetch('/backend/api.php?action=get-areas');
+        const response = await fetch('../backend/api.php?action=get-areas');
         const data = await response.json();
         
         if (data.error) throw new Error(data.error);
@@ -94,7 +94,7 @@ async function showHouses(area = '') {
     updateStatus('Загрузка домов...', 'loading');
     
     try {
-        const url = `/backend/api.php?action=get-houses&area=${encodeURIComponent(area)}`;
+        const url = `../backend/api.php?action=get-houses&area=${encodeURIComponent(area)}`;
         const response = await fetch(url);
         const data = await response.json();
         
@@ -238,11 +238,11 @@ async function showHouseDetails(address, admArea = '', district = '', companyNam
     
     try {
         const requests = [
-            fetch(`/backend/api.php?action=get-license-info&inn=${encodeURIComponent(inn)}`)
+            fetch(`../backend/api.php?action=get-license-info&inn=${encodeURIComponent(inn)}`)
         ];
         if (inn) {
-            requests.push(fetch(`/backend/api.php?action=get-violations&inn=${encodeURIComponent(inn)}`));
-            requests.push(fetch(`/backend/api.php?action=get-uk-rating-2024&inn=${encodeURIComponent(inn)}`));
+            requests.push(fetch(`../backend/api.php?action=get-violations&inn=${encodeURIComponent(inn)}`));
+            requests.push(fetch(`../backend/api.php?action=get-uk-rating-2024&inn=${encodeURIComponent(inn)}`));
         } else {
             requests.push(Promise.resolve(null));
             requests.push(Promise.resolve(null));
@@ -276,7 +276,7 @@ async function showHouseDetails(address, admArea = '', district = '', companyNam
             if (marker && marker.geometry) {
                 const coords = marker.geometry.getCoordinates();
                 const radiusResponse = await fetch(
-                    `/backend/api.php?action=get-houses-in-radius&lat=${coords[0]}&lon=${coords[1]}&radius=500`
+                    `../backend/api.php?action=get-houses-in-radius&lat=${coords[0]}&lon=${coords[1]}&radius=500`
                 );
                 if (radiusResponse.ok) {
                     const radiusData = await radiusResponse.json();
@@ -299,9 +299,9 @@ async function showHouseDetails(address, admArea = '', district = '', companyNam
                             if (neighbor.INN && neighbor.INN.trim() !== '') {
                                 try {
                                     const [neighborLicenseRes, neighborViolationsRes, neighborRatingRes] = await Promise.all([
-                                        fetch(`/backend/api.php?action=get-license-info&inn=${encodeURIComponent(neighbor.INN)}`),
-                                        fetch(`/backend/api.php?action=get-violations&inn=${encodeURIComponent(neighbor.INN)}`),
-                                        fetch(`/backend/api.php?action=get-uk-rating-2024&inn=${encodeURIComponent(neighbor.INN)}`)
+                                        fetch(`../backend/api.php?action=get-license-info&inn=${encodeURIComponent(neighbor.INN)}`),
+                                        fetch(`../backend/api.php?action=get-violations&inn=${encodeURIComponent(neighbor.INN)}`),
+                                        fetch(`../backend/api.php?action=get-uk-rating-2024&inn=${encodeURIComponent(neighbor.INN)}`)
                                     ]);
                                     
                                     const neighborLicense = await neighborLicenseRes.json();
@@ -405,10 +405,56 @@ async function showHouseDetails(address, admArea = '', district = '', companyNam
         } else {
             ratingText = '<div class="rating-status rating-unknown">Данных о рейтинге нет</div>';
         }
-
+        // данные дома из маркера
+        const house = marker ? marker.houseData : null;
+        
+        // есть ли дом в избранном (пользователь авторизован)
+        let isFavorite = false;
+        let favoriteBtnHTML = '';
+        
+        if (window.userId && house) {
+            try {
+                // избранные для проверки
+                const response = await fetch(`../backend/api.php?action=get-favorites&user_id=${window.userId}`);
+                const data = await response.json();
+                
+                if (data.favorites) {
+                    // проверяем
+                    isFavorite = data.favorites.some(fav => {
+                        const latDiff = Math.abs(fav.latitude - house.lat);
+                        const lonDiff = Math.abs(fav.longitude - house.lon);
+                        return latDiff < 0.0001 && lonDiff < 0.0001;
+                    });
+                }
+            } catch (error) {
+                console.error('Ошибка проверки избранного:', error);
+                isFavorite = false;
+            }
+            
+            // разные кнопки в зависимости от статуса
+            if (isFavorite) {
+                favoriteBtnHTML = `
+                    <button class="favorite-btn" style="cursor: default; opacity: 0.7; color: #27ae60;" disabled>
+                        ♥ В избранном
+                    </button>
+                `;
+            } else {
+                favoriteBtnHTML = `
+                    <button id="favorite-btn" class="favorite-btn" 
+                            data-lat="${house.lat}" 
+                            data-lon="${house.lon}">
+                        ♡ Добавить в избранное
+                    </button>
+                `;
+            }
+        }
+        
         const houseInfoHTML = `
             <div class="house-details">
+            <div class="house-header">
                 <div class="house-address">${address}</div>
+                    ${favoriteBtnHTML}
+                </div>
                 <div class="index-display ${indexColorClass}" style="margin: 15px 0; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold;">
                     Общий индекс качества дома: ${(totalIndex * 100).toFixed(0)}/100 (${indexText})
                 </div>
@@ -460,11 +506,44 @@ async function showHouseDetails(address, admArea = '', district = '', companyNam
         document.getElementById('house-info').innerHTML = houseInfoHTML;
         updateStatus('Информация загружена', 'success');
         
+        // добавляем обработчик клика на кнопку избранного
+        if (window.userId && house && !isFavorite) {
+            const favoriteBtn = document.getElementById('favorite-btn');
+            if (favoriteBtn) {
+                favoriteBtn.addEventListener('click', async function() {
+                    const success = await addToFavorite(house, marker);
+                    if (success) {
+                        // кнопка неактивная
+                        this.innerHTML = '♥ В избранном';
+                        this.disabled = true;
+                        this.style.cursor = 'default';
+                        this.style.opacity = '0.7';
+                        this.style.color = '#27ae60';
+                    }
+                });
+            }
+        }
+        
     } catch (error) {
         console.error('Ошибка загрузки информации:', error);
+        
+        // данные дома из маркера
+        const house = marker ? marker.houseData : null;
+        let favoriteBtnHTML = '';
+        
+        if (window.userId && house) {
+            favoriteBtnHTML = `
+                <button class="favorite-btn" style="cursor: not-allowed; opacity: 0.7;" disabled>
+                    ♡ Ошибка загрузки
+                </button>
+            `;
+        }
+        
         const houseInfoHTML = `
             <div class="house-details">
+            <div class="house-header">
                 <div class="house-address">${address}</div>
+                 ${favoriteBtnHTML}
                 <div class="index-display ${indexColorClass}" style="margin: 15px 0; padding: 10px; border-radius: 5px; text-align: center; font-weight: bold;">
                     Общий индекс качества дома: ${(totalIndex * 100).toFixed(0)}/100 (${indexText})
                 </div>
@@ -521,5 +600,100 @@ async function showHouseDetails(address, admArea = '', district = '', companyNam
         
         document.getElementById('house-info').innerHTML = houseInfoHTML;
         updateStatus('Ошибка загрузки информации', 'error');
+    }
+}
+
+// функция для показа уведомлений
+function showNotification(message, type = 'info') {
+    // элемент уведомления
+    const notification = document.createElement('div');
+    notification.className = `notification notification-${type}`;
+    notification.textContent = message;
+    
+    // стили для уведомления
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 15px 20px;
+        border-radius: 5px;
+        color: white;
+        font-weight: bold;
+        z-index: 10000;
+        opacity: 0;
+        transition: opacity 0.3s, transform 0.3s;
+        transform: translateY(-20px);
+    `;
+    
+    if (type === 'success') {
+        notification.style.backgroundColor = '#27ae60';
+    } else if (type === 'error') {
+        notification.style.backgroundColor = '#e74c3c';
+    } else if (type === 'info') {
+        notification.style.backgroundColor = '#3498db';
+    }
+    
+    // в DOM
+    document.body.appendChild(notification);
+    
+    // показать с анимацией
+    setTimeout(() => {
+        notification.style.opacity = '1';
+        notification.style.transform = 'translateY(0)';
+    }, 10);
+    
+    // убирать через 3 секунды
+    setTimeout(() => {
+        notification.style.opacity = '0';
+        notification.style.transform = 'translateY(-20px)';
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 300);
+    }, 3000);
+}
+
+// в избранное
+async function addToFavorite(house, marker) {
+    if (!window.userId) {
+        showNotification('Для добавления в избранное необходимо авторизоваться', 'error');
+        return false;
+    }
+    
+    try {
+        const formData = new FormData();
+        formData.append('user_id', window.userId);
+        formData.append('lat', house.lat);
+        formData.append('lon', house.lon);
+        
+        const response = await fetch('../backend/api.php?action=add-favorite', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.error) {
+            showNotification('Ошибка: ' + data.error, 'error');
+            return false;
+        }
+        
+        if (data.status === 'already_exists') {
+            showNotification('Этот дом уже в избранном', 'info');
+            return false;
+        }
+        
+        if (data.status === 'added') {
+            showNotification('Дом добавлен в избранное', 'success');
+            return true;
+        }
+        
+        return false;
+        
+    } catch (error) {
+        console.error('Ошибка добавления в избранное:', error);
+        showNotification('Ошибка при добавлении в избранное', 'error');
+        return false;
     }
 }

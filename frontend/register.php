@@ -97,7 +97,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
             
             <div class="checkbox-group">
-            <input type="checkbox" class="agree-checkbox" id="agree">
+            <input type="checkbox" class="agree-checkbox" id="agree" name="agree_terms">
             <label class="checkbox-label" for="agree">
                 Я согласен с 
                 <a href="https://www.consultant.ru/document/cons_doc_LAW_61801/6c94959bc017ac80140621762d2ac59f6006b08c/" 

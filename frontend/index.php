@@ -23,9 +23,10 @@ $user = getCurrentUser();
         <span class="header-user-email">
             Привет, <?php echo htmlspecialchars($user['email']); ?>!
         </span>
-        <a href="logout.php" class="header-logout-button">Выйти</a>
-    </div>
-    <?php else: ?>
+            <a href="favorites.php" class="header-auth-link">Избранные дома</a>
+            <a href="logout.php" class="header-logout-button">Выйти</a>
+        </div>
+        <?php else: ?>
         <div class="header-auth-links">
             <a href="login.php" class="header-auth-link">Вход</a>
             <a href="register.php" class="header-auth-link">Регистрация</a>
@@ -65,7 +66,11 @@ $user = getCurrentUser();
             </div>
         </div>
     </div>
-
+    <?php if ($user): ?>
+    <script>
+        window.userId = <?php echo $user['id']; ?>;
+    </script>
+    <?php endif; ?>
     <script src="app.js"></script>
 </body>
 </html>

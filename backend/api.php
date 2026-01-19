@@ -1,6 +1,7 @@
 <?php
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
+require_once __DIR__ . '/database.php';
 
 // конфигурация
 define('API_KEY', '90febbd4-236a-4eb9-a35d-c20d041d64e2');
@@ -98,6 +99,30 @@ if ($action === 'get-houses') {
     }
     
     echo getHousesInRadius($lat, $lon, $radius);
+} elseif ($action === 'add-favorite') {
+    $lat = $_POST['lat'] ?? 0;
+    $lon = $_POST['lon'] ?? 0;
+    $userId = $_POST['user_id'] ?? 0;
+    
+    echo addFavorite($userId, $lat, $lon);
+} elseif ($action === 'get-favorites') {
+    $userId = $_GET['user_id'] ?? 0;
+    echo getFavorites($userId);
+} elseif ($action === 'remove-favorite') {
+    $id = $_POST['id'] ?? 0;
+    $userId = $_POST['user_id'] ?? 0;
+    
+    echo removeFavorite($id, $userId);
+} elseif ($action === 'get-house-by-coords') {
+    $lat = $_GET['lat'] ?? 0;
+    $lon = $_GET['lon'] ?? 0;
+    
+    if (!$lat || !$lon) {
+        echo json_encode(['error' => 'Не указаны координаты']);
+        exit;
+    }
+    
+    echo getHouseByCoordinates($lat, $lon);
 } else {
     echo json_encode(['error' => 'Неизвестное действие']);
 }
@@ -716,5 +741,92 @@ function calculateDistance($lat1, $lon1, $lat2, $lon2) {
     $c = 2 * atan2(sqrt($a), sqrt(1-$a)); //центральный угол по гаверсинусам
     
     return $earthRadius * $c; // длина дуги = радиус * центральный угол
+}
+
+// функции для работы с избранным
+function addFavorite($userId, $lat, $lon) {
+    try {
+        if (!$userId || !$lat || !$lon) {
+            return json_encode(['error' => 'Недостаточно данных']);
+        }
+        
+        $pdo = getDBConnection();
+        
+        // существует ли уже запись
+        $stmt = $pdo->prepare("SELECT id FROM favorites WHERE user_id = ? AND latitude = ? AND longitude = ?");
+        $stmt->execute([$userId, $lat, $lon]);
+        $existing = $stmt->fetch();
+        
+        if ($existing) {
+            return json_encode([
+                'status' => 'already_exists',
+                'message' => 'Этот дом уже в избранном'
+            ], JSON_UNESCAPED_UNICODE);
+        }
+        
+        // добавляем запись
+        $stmt = $pdo->prepare("INSERT INTO favorites (user_id, latitude, longitude) VALUES (?, ?, ?)");
+        $stmt->execute([$userId, $lat, $lon]);
+        
+        return json_encode([
+            'status' => 'added', 
+            'id' => $pdo->lastInsertId(),
+            'message' => 'Добавлено в избранное'
+        ], JSON_UNESCAPED_UNICODE);
+        
+    } catch (Exception $e) {
+        return json_encode([
+            'error' => 'Ошибка базы данных: ' . $e->getMessage(),
+            'code' => $e->getCode()
+        ], JSON_UNESCAPED_UNICODE);
+    }
+}
+
+function getFavorites($userId) {
+    if (!$userId) {
+        return json_encode(['error' => 'Не указан пользователь']);
+    }
+    
+    $pdo = getDBConnection();
+    $stmt = $pdo->prepare("SELECT id, latitude, longitude FROM favorites WHERE user_id = ? ORDER BY id DESC");
+    $stmt->execute([$userId]);
+    $favorites = $stmt->fetchAll();
+    
+    return json_encode(['favorites' => $favorites]);
+}
+
+function removeFavorite($id, $userId) {
+    if (!$id || !$userId) {
+        return json_encode(['error' => 'Недостаточно данных']);
+    }
+    
+    $pdo = getDBConnection();
+    $stmt = $pdo->prepare("DELETE FROM favorites WHERE id = ? AND user_id = ?");
+    $stmt->execute([$id, $userId]);
+    
+    return json_encode(['status' => 'removed']);
+}
+
+function getHouseByCoordinates($lat, $lon) {
+    $cacheFile = CACHE_DIR . 'all_houses.cache';
+    if (!file_exists($cacheFile)) {
+        return json_encode(['house' => null]);
+    }
+    
+    $allHouses = json_decode(file_get_contents($cacheFile), true);
+    
+    // ищем ближайший дом
+    $closestHouse = null;
+    $minDistance = 0.0001; // примерно 10 метров
+    
+    foreach ($allHouses as $house) {
+        $distance = abs($house['lat'] - $lat) + abs($house['lon'] - $lon);
+        if ($distance < $minDistance) {
+            $closestHouse = $house;
+            $minDistance = $distance;
+        }
+    }
+    
+    return json_encode(['house' => $closestHouse]);
 }
 ?>
