@@ -30,19 +30,11 @@ function init() {
     });
     
     updateStatus('Карта готова', 'success');
-    document.getElementById('house-info').innerHTML = `
-        <div class="placeholder">
-            Выберите дом на карте для просмотра информации
-            <div style="margin-top: 10px; font-size: 12px; color: #777;">
-                Будут показаны: адрес, округ, район, статус лицензии
-            </div>
-        </div>
-    `;
      document.getElementById('house-info').innerHTML = `
         <div class="placeholder">
             Выберите дом на карте или воспользуйтесь поиском
             <div style="margin-top: 10px; font-size: 12px; color: #777;">
-                Будут показаны: адрес, округ, район, статус лицензии
+                Будут показаны: индекс качества, адрес, округ, район, статус лицензии, количество нарушений
             </div>
         </div>
     `;
@@ -50,7 +42,7 @@ function init() {
     // инициализируем поиск
     setTimeout(() => {
         initAddressSearch();
-    }, 1000);
+    }, 1000); // 1 сек
     
     loadAndShowFilters();
 }
@@ -229,7 +221,7 @@ function calculateHouseIndex(licenseInfo, violationsInfo, ratingInfo) {
     
     // нарушения 30%
     if (violationsInfo && violationsInfo.totalViolations !== undefined) {
-        const maxViolations = 20;
+        const maxViolations = 200;
         const violationScore = Math.max(0, 30 * (1 - (violationsInfo.totalViolations / maxViolations)));
         score += violationScore;
     } else {
@@ -943,7 +935,7 @@ function selectHouseOnMap(lat, lon, address, admArea, district, companyName, inn
     if (!map) return;
     
     // центрируем карту на выбранном доме
-    map.setCenter([lat, lon], 16);
+    map.setCenter([lat, lon], 14);
     
     // ищем маркер среди текущих маркеров
     let targetMarker = null;

@@ -11,7 +11,7 @@ define('MAX_DISPLAY_ALL', 5000);
 
 // кэш
 define('CACHE_DIR', __DIR__ . '/cache/');
-define('CACHE_TIME', 86400); // 24 часа
+define('CACHE_TIME', 86400 * 7); // неделя
 
 $ADM_AREA_BOUNDS = [
     'Центральный административный округ' => [
